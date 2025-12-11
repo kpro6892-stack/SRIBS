@@ -1,99 +1,378 @@
-// SBRI Slot Editor - Single-file React component // Default export: SlotEditor // Tailwind CSS is required in the hosting app. // Dependencies (install in your project): // npm install html2canvas jspdf // Or include cdn versions in index.html for quick test.
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>SBRI Slot Editor (No React)</title>
 
-import React, { useState, useRef } from "react"; import html2canvas from "html2canvas"; import jsPDF from "jspdf";
+<!-- CDN libs for PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-// Configuration: days and period labels const DAYS = ["MON","TUE","WED","THU","FRI","SAT","SUN"]; const PERIOD_LABELS = [ "08:00–08:50 (P1)", "09:00–09:50 (P2)", "10:00–10:50 (P3)", "11:00–11:50 (P4)", "12:00–12:50 (P5)", "12:50–13:20 (EXT)", "14:00–14:50 (E1)", "15:00–15:50 (E2)", "16:00–16:50 (E3)", "17:00–17:50 (E4)", "18:00–18:50 (E5)", "19:00–19:50 (E6)", ];
-
-// Utility: build slot codes (A1..A12, B1..B12, ... G1..G12) const buildSlotMatrix = () => { const letters = ["A","B","C","D","E","F","G"]; // Mon..Sun const matrix = {}; for (let d = 0; d < DAYS.length; d++) { const row = []; for (let p = 0; p < PERIOD_LABELS.length; p++) { row.push(${letters[d]}${p+1}); } matrix[DAYS[d]] = row; } return matrix; };
-
-// Default empty content for each cell: shows slot code and (Empty) const buildDefaultGrid = () => { const slots = buildSlotMatrix(); const grid = {}; DAYS.forEach((day) => { grid[day] = slots[day].map((slot) => ({ slot, content: "", room: "", faculty: "", isLab: false, needsExt: false, })); }); return grid; };
-
-export default function SlotEditor() { const [grid, setGrid] = useState(() => buildDefaultGrid()); const [selected, setSelected] = useState(null); // {day, idx} const [search, setSearch] = useState(""); const canvasRef = useRef();
-
-// Edit handler function openEditor(day, idx) { setSelected({day, idx}); }
-
-function closeEditor() { setSelected(null); }
-
-function saveCell(data) { setGrid((prev) => { const copy = {...prev}; copy[data.day] = [...copy[data.day]]; copy[data.day][data.idx] = { ...copy[data.day][data.idx], content: data.content, room: data.room, faculty: data.faculty, isLab: data.isLab, needsExt: data.needsExt, }; return copy; }); closeEditor(); }
-
-function clearCell(day, idx) { setGrid((prev) => { const copy = {...prev}; copy[day] = [...copy[day]]; copy[day][idx] = {...copy[day][idx], content:'', room:'', faculty:'', isLab:false, needsExt:false}; return copy; }); }
-
-// Bulk download as PDF of current grid (single dept view or all pages) async function downloadPDF(filename="SBRI_Timetable.pdf") { // Render the DOM node referenced by canvasRef const node = canvasRef.current; if (!node) return; // use html2canvas with high scale const canvas = await html2canvas(node, {scale: 2, useCORS: true}); const imgData = canvas.toDataURL('image/png'); const pdf = new jsPDF({orientation: 'landscape', unit: 'pt', format: 'a4'}); // calculate dimensions to fit A4 landscape (in points) const pageWidth = pdf.internal.pageSize.getWidth(); const pageHeight = pdf.internal.pageSize.getHeight(); // draw the image scaled const imgProps = pdf.getImageProperties(imgData); const imgWidth = pageWidth - 40; // margin const imgHeight = (imgProps.height * imgWidth) / imgProps.width; pdf.addImage(imgData, 'PNG', 20, 20, imgWidth, imgHeight); pdf.save(filename); }
-
-// Export CSV function exportCSV(filename="SBRI_Timetable.csv") { const rows = []; rows.push(["Day","Slot","Period","Start","End","Content","Room","Faculty","IsLab","NeedsEXT"]); const periodTimes = [ ["08:00","08:50"],["09:00","09:50"],["10:00","10:50"],["11:00","11:50"], ["12:00","12:50"],["12:50","13:20"],["14:00","14:50"],["15:00","15:50"], ["16:00","16:50"],["17:00","17:50"],["18:00","18:50"],["19:00","19:50"], ]; DAYS.forEach((day) => { grid[day].forEach((cell, idx) => { const period = PERIOD_LABELS[idx]; const [start,end] = periodTimes[idx]; rows.push([day, cell.slot, period, start, end, cell.content || "", cell.room || "", cell.faculty || "", cell.isLab ? "Yes" : "No", cell.needsExt ? "Yes" : "No"]); }); }); const csvContent = rows.map(r => r.map(c => "${String(c).replace(/"/g,'""')}").join(',')).join('\n'); const blob = new Blob([csvContent], {type: 'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
-
-// Quick auto-fill sample data — creates a demo schedule for the selected department function autofillDemo() { // simple deterministic demo fill: place "THEORY" in P1/P4 etc and labs in P4/P5/EXT for some days setGrid((prev) => { const copy = {...prev}; DAYS.forEach((day, dIdx) => { copy[day] = copy[day].map((cell, pIdx) => ({...cell})); // put demo theory at first 7 theory slots if (dIdx < 5) { // assign a demo subject in P1 (idx0) and P8 (idx6) if (copy[day][0]) { copy[day][0].content = DEMO${dIdx+1} - Theory; copy[day][0].room = HAB-${200 + dIdx}; copy[day][0].faculty = Dr. Demo ${dIdx+1}; } if (copy[day][6]) { copy[day][6].content = DEMO${dIdx+1} - Theory (E); copy[day][6].room = HAB-${210 + dIdx}; copy[day][6].faculty = Dr. Demo ${dIdx+1}; } } }); // place a lab for MON at P4/P5/EXT copy['MON'][3].content = 'MBG11L1 - Molecular Techniques Lab'; copy['MON'][3].room = 'HAB-L1'; copy['MON'][3].faculty = 'Dr. Srinidhi'; copy['MON'][3].isLab = true; copy['MON'][3].needsExt = true; copy['MON'][4].content = 'Lab Continues'; copy['MON'][4].isLab = true; copy['MON'][5].content = 'EXT'; copy['MON'][5].isLab = true; return copy; }); }
-
-// search helper const filteredDays = DAYS;
-
-return ( <div className="p-4 bg-gray-50 min-h-screen"> <div className="max-w-7xl mx-auto"> <header className="flex items-center justify-between mb-4"> <h1 className="text-2xl font-bold">SBRI Slot Editor</h1> <div className="flex gap-2"> <button onClick={() => autofillDemo()} className="px-3 py-2 bg-indigo-600 text-white rounded">Autofill Demo</button> <button onClick={() => exportCSV()} className="px-3 py-2 bg-green-600 text-white rounded">Export CSV</button> <button onClick={() => downloadPDF()} className="px-3 py-2 bg-rose-600 text-white rounded">Download PDF</button> </div> </header>
-
-<div className="mb-2 flex items-center gap-2">
-      <input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search course/room/faculty" className="border px-2 py-1 rounded w-96" />
-      <div className="text-sm text-gray-600">Click any cell to edit. Empty cells show slot code.</div>
+<style>
+  :root{
+    --bg:#fbfdff; --card:#ffffff; --border:#dfe7ee;
+    --theory:#e9fff0; --lab:#ffe6ec; --sep:#e8f7ff; --empty:#ffffff;
+    --accent:#1765c1; --muted:#6b7280;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  }
+  body{margin:0;background:var(--bg);color:#0b1220;line-height:1.25}
+  .wrap{max-width:1100px;margin:12px auto;padding:12px}
+  header{display:flex;gap:8px;align-items:center;justify-content:space-between}
+  h1{font-size:18px;margin:0}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  button{background:var(--accent);color:#fff;border:0;padding:8px 10px;border-radius:6px;font-size:13px}
+  button.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent)}
+  input[type="search"]{padding:8px;border-radius:6px;border:1px solid var(--border);width:220px}
+  .card{background:var(--card);padding:10px;border-radius:8px;border:1px solid var(--border);margin-top:10px;overflow:auto}
+  table{width:100%;border-collapse:collapse;font-size:11px;min-width:900px}
+  th,td{border:1px solid var(--border);padding:6px;vertical-align:top}
+  thead th{background:#f3f6fb;padding:8px;font-size:11px;position:sticky;top:0;z-index:3}
+  td.slot-empty{color:var(--muted);text-align:center}
+  .slotcode{font-weight:700;font-size:12px}
+  .cell-content{margin-top:6px;font-size:11px;line-height:1.1}
+  .cell-room,.cell-faculty{font-size:10px;color:#2b2b2b}
+  .small{font-size:10px;color:var(--muted)}
+  /* color helpers */
+  .theory{background:var(--theory)}
+  .lab{background:var(--lab)}
+  .sep{background:var(--sep)}
+  .empty{background:var(--empty)}
+  /* responsive */
+  @media (max-width:900px){
+    table{min-width:100%}
+    input[type="search"]{width:120px}
+  }
+  /* modal */
+  .modal-back{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:40}
+  .modal{width:92%;max-width:520px;background:#fff;padding:12px;border-radius:8px;border:1px solid var(--border)}
+  .row{display:flex;gap:8px}
+  .col{flex:1}
+  label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
+  input[type="text"], textarea{width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);font-size:13px}
+  .tiny{font-size:12px;padding:6px 8px}
+  footer.small{margin-top:8px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>SBRI Slot Editor — Mobile HTML</h1>
+    <div class="controls">
+      <button id="autofill">Autofill Demo</button>
+      <button id="exportCsv" class="ghost">Export CSV</button>
+      <button id="downloadPdf">Download PDF</button>
     </div>
+  </header>
 
-    {/* Timetable grid container for screenshot */}
-    <div ref={canvasRef} className="bg-white shadow p-4 rounded">
-      <table className="table-fixed w-full border-collapse">
-        <thead>
-          <tr>
-            <th className="border p-2 bg-gray-100 text-left w-28">Day / Time</th>
-            {PERIOD_LABELS.map((pl, i) => (
-              <th key={i} className="border p-2 text-center bg-gray-100 text-xs">{pl}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {filteredDays.map((day) => (
-            <tr key={day} className="align-top">
-              <td className="border p-1 font-semibold">{day}</td>
-              {grid[day].map((cell, idx) => {
-                const isMatched = search.length>0 && ((cell.content||"").toLowerCase().includes(search.toLowerCase()) || (cell.room||"").toLowerCase().includes(search.toLowerCase()) || (cell.faculty||"").toLowerCase().includes(search.toLowerCase()));
-                return (
-                  <td key={idx} onClick={()=>openEditor(day, idx)} className={`border p-2 align-top text-xs cursor-pointer ${cell.isLab? 'bg-pink-100' : (cell.content? 'bg-green-50':'bg-white')} ${isMatched? 'ring-2 ring-indigo-300':''}`}>
-                    <div className="text-center font-bold text-sm">{cell.slot}</div>
-                    {cell.content ? (
-                      <div className="mt-1 text-[10px] leading-tight">
-                        <div className="font-semibold">{cell.content}</div>
-                        <div className="text-[9px]">{cell.room}</div>
-                        <div className="text-[9px]">{cell.faculty}</div>
-                        {cell.isLab && <div className="text-[9px] italic">{cell.needsExt? 'EXT' : 'No EXT'}</div>}
-                      </div>
-                    ) : (
-                      <div className="mt-1 text-[10px] text-gray-400">(Empty)</div>
-                    )}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
+  <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+    <input id="search" type="search" placeholder="Search course/room/faculty..." />
+    <div class="small">Tap a cell to edit. All cells show slot codes.</div>
+  </div>
+
+  <div class="card" id="timetableCard" style="margin-top:10px">
+    <div style="overflow:auto">
+      <table id="timetable">
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
       </table>
     </div>
+  </div>
 
-    {/* Editor modal */}
-    {selected && (
-      <EditorModal
-        day={selected.day}
-        idx={selected.idx}
-        cell={grid[selected.day][selected.idx]}
-        onClose={closeEditor}
-        onSave={(payload)=>saveCell(payload)}
-        onClear={()=>{clearCell(selected.day, selected.idx); closeEditor();}}
-      />
-    )}
+  <footer class="small">Tip: Use Download PDF to produce an A4-like image of the grid. CSV is for import.</footer>
+</div>
 
-    <footer className="mt-4 text-sm text-gray-600">Tip: Click a cell to modify slot contents. Use Download PDF to save the grid as a printable A4 landscape.</footer>
+<!-- Modal -->
+<div id="modal" style="display:none">
+  <div class="modal-back">
+    <div class="modal" role="dialog" aria-modal="true">
+      <h3 id="modalTitle" style="margin:0 0 8px 0">Edit Slot</h3>
+      <div>
+        <label>Course / Content</label>
+        <input id="m_content" type="text" placeholder="e.g., MBG1101 — Advanced Mol Bio"/>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="flex:1">
+            <label>Room</label>
+            <input id="m_room" type="text" placeholder="HAB-201"/>
+          </div>
+          <div style="flex:1">
+            <label>Faculty</label>
+            <input id="m_fac" type="text" placeholder="Dr. Name"/>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:10px">
+          <label style="display:flex;align-items:center;gap:6px"><input id="m_isLab" type="checkbox"/> Is Lab</label>
+          <label style="display:flex;align-items:center;gap:6px"><input id="m_ext" type="checkbox"/> Needs EXT</label>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          <button id="m_clear" class="ghost tiny">Clear</button>
+          <button id="m_cancel" class="ghost tiny">Cancel</button>
+          <button id="m_save" class="tiny">Save</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-); }
+<script>
+/* ========== Configuration ========== */
+const PERIOD_LABELS = [
+  "08:00–08:50 (P1)", "09:00–09:50 (P2)", "10:00–10:50 (P3)",
+  "11:00–11:50 (P4)", "12:00–12:50 (P5)", "12:50–13:20 (EXT)",
+  "14:00–14:50 (E1)", "15:00–15:50 (E2)", "16:00–16:50 (E3)",
+  "17:00–17:50 (E4)", "18:00–18:50 (E5)", "19:00–19:50 (E6)"
+];
+const DAYS = ["MON","TUE","WED","THU","FRI","SAT","SUN"];
+const LETTERS = ["A","B","C","D","E","F","G"]; // mon..sun
 
-function EditorModal({day, idx, cell, onClose, onSave, onClear}){ const [content, setContent] = useState(cell.content||""); const [room, setRoom] = useState(cell.room||""); const [faculty, setFaculty] = useState(cell.faculty||""); const [isLab, setIsLab] = useState(!!cell.isLab); const [needsExt, setNeedsExt] = useState(!!cell.needsExt);
+/* build slot matrix (A1..G12) */
+const slots = {};
+for(let d=0; d<DAYS.length; d++){
+  const arr = [];
+  for(let p=0;p<PERIOD_LABELS.length;p++){
+    arr.push(`${LETTERS[d]}${p+1}`);
+  }
+  slots[DAYS[d]] = arr;
+}
 
-function handleSave(){ onSave({day, idx, content, room, faculty, isLab, needsExt}); }
+/* create default grid */
+function makeEmptyGrid(){
+  const g = {};
+  DAYS.forEach(day=>{
+    g[day] = slots[day].map(s => ({
+      slot: s,
+      content: "",
+      room: "",
+      faculty: "",
+      isLab: false,
+      needsExt: false
+    }));
+  });
+  return g;
+}
 
-return ( <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"> <div className="bg-white rounded shadow p-4 w-[560px]"> <h3 className="text-lg font-bold">Edit Slot: {cell.slot} — {day}</h3> <div className="mt-3 grid grid-cols-1 gap-2"> <label className="text-sm">Course / Content</label> <input value={content} onChange={(e)=>setContent(e.target.value)} className="border p-2 rounded w-full text-sm" /> <div className="grid grid-cols-2 gap-2"> <div> <label className="text-sm">Room</label> <input value={room} onChange={(e)=>setRoom(e.target.value)} className="border p-2 rounded w-full text-sm" /> </div> <div> <label className="text-sm">Faculty</label> <input value={faculty} onChange={(e)=>setFaculty(e.target.value)} className="border p-2 rounded w-full text-sm" /> </div> </div> <div className="flex items-center gap-4 mt-2"> <label className="flex items-center gap-2"><input type="checkbox" checked={isLab} onChange={(e)=>setIsLab(e.target.checked)} /> Is Lab</label> <label className="flex items-center gap-2"><input type="checkbox" checked={needsExt} onChange={(e)=>setNeedsExt(e.target.checked)} /> Needs EXT</label> </div> </div> <div className="mt-4 flex justify-end gap-2"> <button onClick={onClear} className="px-3 py-2 bg-red-600 text-white rounded">Clear</button> <button onClick={onClose} className="px-3 py-2 bg-gray-200 rounded">Cancel</button> <button onClick={handleSave} className="px-3 py-2 bg-indigo-600 text-white rounded">Save</button> </div> </div> </div> ); }
+let GRID = makeEmptyGrid();
 
-// End of file
+/* ========== UI Rendering ========== */
+const thead = document.getElementById('thead');
+const tbody = document.getElementById('tbody');
+const timetableCard = document.getElementById('timetableCard');
+const searchInput = document.getElementById('search');
+
+function renderHeader(){
+  let tr = document.createElement('tr');
+  let th0 = document.createElement('th');
+  th0.innerText = "Day / Time";
+  th0.style.width = "100px";
+  tr.appendChild(th0);
+  PERIOD_LABELS.forEach(pl=>{
+    let th = document.createElement('th');
+    th.innerText = pl;
+    tr.appendChild(th);
+  });
+  thead.innerHTML = "";
+  thead.appendChild(tr);
+}
+
+function renderBody(filterText=""){
+  tbody.innerHTML = "";
+  DAYS.forEach(day=>{
+    const tr = document.createElement('tr');
+    const td0 = document.createElement('td');
+    td0.innerHTML = `<strong>${day}</strong>`;
+    tr.appendChild(td0);
+
+    GRID[day].forEach((cell, idx)=>{
+      const td = document.createElement('td');
+      td.setAttribute('data-day',day);
+      td.setAttribute('data-idx',idx);
+      td.className = cell.content ? (cell.isLab ? 'lab' : 'theory') : 'empty';
+      // search highlight
+      const needle = filterText.trim().toLowerCase();
+      const matches = needle && ( (cell.content||'').toLowerCase().includes(needle) || (cell.room||'').toLowerCase().includes(needle) || (cell.faculty||'').toLowerCase().includes(needle) );
+      if(matches) td.style.outline = "3px solid rgba(23,101,193,0.15)";
+
+      // slot code (bold)
+      const divSlot = document.createElement('div');
+      divSlot.className = 'slotcode';
+      divSlot.innerText = cell.slot;
+      td.appendChild(divSlot);
+
+      // content / empty
+      if(cell.content){
+        const cont = document.createElement('div');
+        cont.className = 'cell-content';
+        cont.innerHTML = `<div class="cell-title">${escapeHtml(cell.content)}</div>
+                         <div class="cell-room">${escapeHtml(cell.room)}</div>
+                         <div class="cell-faculty">${escapeHtml(cell.faculty)}</div>
+                         ${cell.isLab? `<div class="small">${cell.needsExt? 'EXT' : 'No EXT'}</div>` : ''}`;
+        td.appendChild(cont);
+      } else {
+        const emp = document.createElement('div');
+        emp.className = 'slot-empty';
+        emp.innerText = "(Empty)";
+        td.appendChild(emp);
+      }
+
+      td.addEventListener('click', onCellClick);
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+/* safe escape */
+function escapeHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* initial render */
+renderHeader();
+renderBody();
+
+/* ========== Editing Modal ========== */
+const modal = document.getElementById('modal');
+const m_title = document.getElementById('modalTitle');
+const m_content = document.getElementById('m_content');
+const m_room = document.getElementById('m_room');
+const m_fac = document.getElementById('m_fac');
+const m_isLab = document.getElementById('m_isLab');
+const m_ext = document.getElementById('m_ext');
+const m_save = document.getElementById('m_save');
+const m_cancel = document.getElementById('m_cancel');
+const m_clear = document.getElementById('m_clear');
+
+let activeEdit = null;
+
+function onCellClick(e){
+  const td = e.currentTarget;
+  const day = td.getAttribute('data-day');
+  const idx = parseInt(td.getAttribute('data-idx'),10);
+  activeEdit = {day, idx};
+  const cell = GRID[day][idx];
+  m_title.innerText = `Edit Slot ${cell.slot} — ${day}`;
+  m_content.value = cell.content;
+  m_room.value = cell.room;
+  m_fac.value = cell.faculty;
+  m_isLab.checked = !!cell.isLab;
+  m_ext.checked = !!cell.needsExt;
+  showModal();
+}
+
+function showModal(){ modal.style.display = 'block'; }
+function hideModal(){ modal.style.display = 'none'; activeEdit=null; }
+
+/* modal actions */
+m_cancel.addEventListener('click', ()=>{ hideModal(); });
+m_clear.addEventListener('click', ()=>{
+  if(!activeEdit) return;
+  GRID[activeEdit.day][activeEdit.idx] = { slot: GRID[activeEdit.day][activeEdit.idx].slot, content:'', room:'', faculty:'', isLab:false, needsExt:false };
+  hideModal(); renderBody(searchInput.value);
+});
+m_save.addEventListener('click', ()=>{
+  if(!activeEdit) return;
+  GRID[activeEdit.day][activeEdit.idx].content = m_content.value.trim();
+  GRID[activeEdit.day][activeEdit.idx].room = m_room.value.trim();
+  GRID[activeEdit.day][activeEdit.idx].faculty = m_fac.value.trim();
+  GRID[activeEdit.day][activeEdit.idx].isLab = m_isLab.checked;
+  GRID[activeEdit.day][activeEdit.idx].needsExt = m_ext.checked;
+  hideModal(); renderBody(searchInput.value);
+});
+
+/* search */
+searchInput.addEventListener('input', ()=> renderBody(searchInput.value) );
+
+/* autofill demo */
+document.getElementById('autofill').addEventListener('click', ()=>{
+  // simple deterministic demo
+  GRID = makeEmptyGrid();
+  DAYS.forEach((d,di)=>{
+    if(di<5){
+      GRID[d][0].content = `DEMO${di+1} — Theory`;
+      GRID[d][0].room = `HAB-${200+di}`;
+      GRID[d][0].faculty = `Dr. Demo ${di+1}`;
+      GRID[d][6].content = `DEMO${di+1} — Theory (E)`;
+      GRID[d][6].room = `HAB-${210+di}`;
+      GRID[d][6].faculty = `Dr. Demo ${di+1}`;
+    }
+  });
+  // place a morning lab on MON in P4/P5/EXT
+  GRID['MON'][3].content = 'MBG11L1 - Molecular Techniques Lab';
+  GRID['MON'][3].room='HAB-L1'; GRID['MON'][3].faculty='Dr. Srinidhi'; GRID['MON'][3].isLab=true; GRID['MON'][3].needsExt=true;
+  GRID['MON'][4].content = 'Lab Continues'; GRID['MON'][4].isLab=true;
+  GRID['MON'][5].content = 'EXT'; GRID['MON'][5].isLab=true;
+  renderBody(searchInput.value);
+});
+
+/* ========== CSV Export ========== */
+document.getElementById('exportCsv').addEventListener('click', ()=>{
+  const rows = [];
+  rows.push(['Department','Day','Slot','PeriodLabel','Start','End','Content','Room','Faculty','IsLab','NeedsEXT']);
+  const times = [["08:00","08:50"],["09:00","09:50"],["10:00","10:50"],["11:00","11:50"],["12:00","12:50"],["12:50","13:20"],["14:00","14:50"],["15:00","15:50"],["16:00","16:50"],["17:00","17:50"],["18:00","18:50"],["19:00","19:50"]];
+  // Department left blank — you can replace later
+  DAYS.forEach(day=>{
+    GRID[day].forEach((cell,idx)=>{
+      const start = times[idx][0]; const end = times[idx][1];
+      const row = ["", day, cell.slot, PERIOD_LABELS[idx], start, end, cell.content || "", cell.room || "", cell.faculty || "", cell.isLab? "Yes":"No", cell.needsExt? "Yes":"No"];
+      rows.push(row.map(c => `"${String(c).replace(/"/g,'""')}"`).join(','));
+    });
+  });
+  const csv = rows.join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='SBRI_Timetable.csv'; a.click(); URL.revokeObjectURL(url);
+});
+
+/* ========== PDF Download ========== */
+document.getElementById('downloadPdf').addEventListener('click', async ()=>{
+  const container = document.getElementById('timetable');
+  // temporarily remove outlines for clean screenshot
+  const outlines = container.querySelectorAll('[style*="outline"]');
+  outlines.forEach(el=>el.dataset._outline=el.style.outline, el.style.outline='none');
+
+  // scale for better quality on phones
+  const scale = Math.min(2, window.devicePixelRatio || 1);
+  const canvas = await html2canvas(container, {scale: scale, useCORS:true, backgroundColor: null});
+  const imgData = canvas.toDataURL('image/png');
+
+  // create PDF (landscape A4)
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+
+  // scale image to fit with margins
+  const margin = 20;
+  const imgProps = pdf.getImageProperties(imgData);
+  const imgW = pageW - margin*2;
+  const imgH = (imgProps.height * imgW) / imgProps.width;
+  let y = margin;
+  pdf.addImage(imgData, 'PNG', margin, y, imgW, imgH);
+  pdf.save('SBRI_Timetable.pdf');
+
+  // restore outlines
+  outlines.forEach(el=>el.style.outline=el.dataset._outline||'');
+});
+
+/* ========== Utility: Save/load in localStorage (optional) ========== */
+/* You can persist the current grid in browser storage to keep edits between opens */
+function saveToLocal(){
+  try{ localStorage.setItem('sbi_grid_v1', JSON.stringify(GRID)); }catch(e){}
+}
+function loadFromLocal(){
+  try{
+    const raw = localStorage.getItem('sbi_grid_v1'); if(!raw) return false;
+    GRID = JSON.parse(raw); return true;
+  }catch(e){ return false; }
+}
+// load if present
+loadFromLocal();
+renderBody();
+
+/* Save automatically on every change (debounced) */
+let saveTimer = null;
+function scheduleSave(){ if(saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(()=>{ saveToLocal(); }, 800); }
+document.addEventListener('click', ()=> scheduleSave());
+document.addEventListener('input', ()=> scheduleSave());
+
+</script>
+</body>
+</html>
